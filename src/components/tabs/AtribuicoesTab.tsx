@@ -53,6 +53,13 @@ export default function AtribuicoesTab() {
 
   const getProfNome = (id: string) => professores.find(p => p.id === id)?.nome ?? '—';
 
+  // Professors qualified for the selected disciplina
+  const qualifiedProfs = professores.filter(p =>
+    !p.materias || p.materias.length === 0 || p.materias.includes(disciplina)
+  );
+  const noOneQualified = professores.length > 0 && qualifiedProfs.length === 0;
+  const displayProfs = noOneQualified ? professores : qualifiedProfs;
+
   return (
     <div className="animate-fade-in">
       {/* Add Form */}
@@ -63,8 +70,17 @@ export default function AtribuicoesTab() {
             <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>Professor *</label>
             <select className="input-field" value={profId} onChange={e => setProfId(e.target.value)} required>
               <option value="">Selecione...</option>
-              {professores.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              {displayProfs.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}{(p.materias ?? []).length === 0 ? ' ⚠' : ''}
+                </option>
+              ))}
             </select>
+            {noOneQualified && (
+              <p style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '0.3rem' }}>
+                ⚠ Nenhum professor tem &quot;{disciplina}&quot; cadastrado em suas matérias.
+              </p>
+            )}
           </div>
           <div style={{ flex: '1 1 160px' }}>
             <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>Turma *</label>

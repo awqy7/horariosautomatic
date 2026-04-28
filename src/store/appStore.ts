@@ -30,6 +30,7 @@ interface AppState {
 
   // Professores
   addProfessor: (nome: string, email: string) => Promise<boolean>;
+  updateProfessorMaterias: (id: string, materias: string[]) => Promise<boolean>;
   deleteProfessor: (id: string) => Promise<boolean>;
 
   // Indisponibilidades
@@ -89,10 +90,21 @@ export const useAppStore = create<AppState>((set) => ({
   addProfessor: async (nome, email) => {
     try {
       const { data, error } = await withTimeout(
-        supabase.from('professores').insert({ nome, email: email || null }).select().single()
+        supabase.from('professores').insert({ nome, email: email || null, materias: [] }).select().single()
       );
       if (error || !data) { console.error(error); return false; }
       set(s => ({ professores: [...s.professores, data as Professor].sort((a, b) => a.nome.localeCompare(b.nome)) }));
+      return true;
+    } catch { return false; }
+  },
+
+  updateProfessorMaterias: async (id, materias) => {
+    try {
+      const { data, error } = await withTimeout(
+        supabase.from('professores').update({ materias }).eq('id', id).select().single()
+      );
+      if (error || !data) { console.error(error); return false; }
+      set(s => ({ professores: s.professores.map(p => p.id === id ? { ...p, materias } : p) }));
       return true;
     } catch { return false; }
   },

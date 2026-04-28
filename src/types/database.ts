@@ -4,8 +4,10 @@ export interface Professor {
   id: string;
   nome: string;
   email: string | null;
+  materias: string[];
   created_at: string;
 }
+
 
 export interface Indisponibilidade {
   id: string;
