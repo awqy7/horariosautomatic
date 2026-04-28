@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
-import { BookOpen, Users, School, ClipboardList, Zap, LogOut, Loader } from 'lucide-react';
+import { BookOpen, Users, School, Zap, LogOut, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ProfessoresTab from '../components/tabs/ProfessoresTab';
 import TurmasTab from '../components/tabs/TurmasTab';
-import AtribuicoesTab from '../components/tabs/AtribuicoesTab';
 import GerarTab from '../components/tabs/GerarTab';
 
-type Tab = 'professores' | 'turmas' | 'atribuicoes' | 'gerar';
+type Tab = 'professores' | 'turmas' | 'gerar';
 
 interface Props { onLogout: () => void; }
 
@@ -42,7 +41,6 @@ export default function AdminPanel({ onLogout }: Props) {
   const tabs: { id: Tab; label: string; icon: React.ReactNode; badge?: number }[] = [
     { id: 'professores', label: 'Professores', icon: <Users size={18} />, badge: professores.length },
     { id: 'turmas',      label: 'Turmas',      icon: <School size={18} />, badge: turmas.length },
-    { id: 'atribuicoes', label: 'Atribuições',  icon: <ClipboardList size={18} />, badge: atribuicoes.length },
     { id: 'gerar',       label: 'Gerar Grade',  icon: <Zap size={18} /> },
   ];
 
@@ -108,9 +106,8 @@ export default function AdminPanel({ onLogout }: Props) {
 
       {/* Content */}
       <main style={{ flex: 1, padding: '2rem', maxWidth: 1300, width: '100%', margin: '0 auto' }}>
-        {activeTab === 'professores'  && <ProfessoresTab />}
+        {activeTab === 'professores'  && <ProfessoresTab onGoToGerar={() => setActiveTab('gerar')} />}
         {activeTab === 'turmas'       && <TurmasTab />}
-        {activeTab === 'atribuicoes'  && <AtribuicoesTab />}
         {activeTab === 'gerar'        && <GerarTab allReady={allReady} onGoToTab={setActiveTab} />}
       </main>
     </div>

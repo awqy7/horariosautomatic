@@ -3,17 +3,57 @@ import { useAppStore } from '../store/appStore';
 import type { SolverSolution } from '../lib/algorithm';
 import { DIAS_SEMANA, SLOT_TIMES, TURNO_LABEL, TURNO_OFFSET, disciplinaColor } from '../lib/constants';
 import type { Turno } from '../types/database';
+import { Edit3, X, Check } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 interface Props { solution: SolverSolution; }
 
+
 export default function SolutionGrid({ solution }: Props) {
-  const { turmas, atribuicoes, professores } = useAppStore();
+  const { turmas, atribuicoes, professores, gradesGeradas, updateGradeSlot } = useAppStore();
   const [viewMode, setViewMode] = useState<'turma' | 'professor'>('turma');
   const [selectedId, setSelectedId] = useState<string>(turmas[0]?.id ?? '');
+  const [editMode, setEditMode] = useState(false);
+  const [editingCell, setEditingCell] = useState<{ dia: number; slot: number } | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const profMap  = new Map(professores.map(p => [p.id, p]));
   const atrMap   = new Map(atribuicoes.map(a => [a.id, a]));
   const turmaMap = new Map(turmas.map(t => [t.id, t]));
+
+  // Map from atribuicaoId+dia+slotRelativo → gradeGerada id
+  const gradeKey = (atrId: string, dia: number, slot: number) => `${atrId}-${dia}-${slot}`;
+  const gradeIdMap = new Map<string, string>();
+  for (const g of gradesGeradas) {
+    gradeIdMap.set(gradeKey(g.atribuicao_id, g.dia_semana, g.slot_relativo), g.id);
+  }
+
+  // ─── Cell click handler ─────────────────────────────────────────────────────
+  const handleCellClick = (
+    dia: number, slot: number,
+    currentAtrId: string | null,
+  ) => {
+    if (!editMode) return;
+    if (!currentAtrId) return; // can't edit empty cell in this version
+    setEditingCell({ dia, slot });
+  };
+
+  const handleSwapProf = async (
+    dia: number, slotRelativo: number,
+    currentAtrId: string,
+    newAtrId: string,
+  ) => {
+    if (currentAtrId === newAtrId) { setEditingCell(null); return; }
+    const gId = gradeIdMap.get(gradeKey(currentAtrId, dia, slotRelativo));
+    if (!gId) { toast.error('Slot não encontrado no banco.'); setEditingCell(null); return; }
+
+    setSaving(true);
+    const ok = await updateGradeSlot(gId, newAtrId);
+    if (ok) toast.success('Slot atualizado!');
+    else toast.error('Erro ao salvar alteração.');
+    setSaving(false);
+    setEditingCell(null);
+  };
 
   // ─── TURMA VIEW ─────────────────────────────────────────────────────────────
   const renderTurmaGrid = () => {
@@ -23,7 +63,10 @@ export default function SolutionGrid({ solution }: Props) {
     const turnoSlots = SLOT_TIMES[turma.turno as Turno];
     const slotCount  = turma.aulas_por_dia;
 
-    type Cell = { disciplina: string; professorNome: string } | null;
+    // Atribuições válidas para esta turma (para edição)
+    const turmaAtrs = atribuicoes.filter(a => a.turma_id === selectedId);
+
+    type Cell = { disciplina: string; professorNome: string; atrId: string } | null;
     const grid: Cell[][] = Array.from({ length: 7 }, () => Array(slotCount + 1).fill(null));
 
     for (const ev of solution.events) {
@@ -34,6 +77,7 @@ export default function SolutionGrid({ solution }: Props) {
         grid[ev.dia][ev.slotRelativo] = {
           disciplina: atr.disciplina,
           professorNome: prof?.nome ?? '—',
+          atrId: ev.atribuicaoId,
         };
       }
     }
@@ -58,17 +102,76 @@ export default function SolutionGrid({ solution }: Props) {
                 {DIAS_SEMANA.map(dia => {
                   const cell = grid[dia.id][slot];
                   const color = cell ? disciplinaColor(cell.disciplina) : null;
+                  const isEditing = editMode && editingCell?.dia === dia.id && editingCell?.slot === slot;
+
                   return (
-                    <td key={dia.id} style={{
-                      height: 76, borderRadius: 10, padding: '0.55rem 0.65rem',
-                      background: cell ? `${color}1a` : 'rgba(255,255,255,0.03)',
-                      border: cell ? `1px solid ${color}50` : '1px solid rgba(255,255,255,0.06)',
-                      verticalAlign: 'top', transition: 'all 0.15s',
-                    }}>
+                    <td key={dia.id}
+                      onClick={() => cell && handleCellClick(dia.id, slot, cell.atrId)}
+                      style={{
+                        height: 80, borderRadius: 10, padding: '0.55rem 0.65rem',
+                        background: cell ? `${color}1a` : 'rgba(255,255,255,0.03)',
+                        border: cell
+                          ? (editMode ? `1px solid ${color}80` : `1px solid ${color}50`)
+                          : '1px solid rgba(255,255,255,0.06)',
+                        verticalAlign: 'top', transition: 'all 0.15s',
+                        cursor: editMode && cell ? 'pointer' : 'default',
+                        position: 'relative',
+                        outline: isEditing ? `2px solid ${color}` : 'none',
+                      }}
+                    >
                       {cell && (
                         <div>
                           <p style={{ fontSize: '0.82rem', fontWeight: 700, color: color!, lineHeight: 1.3, marginBottom: 2 }}>{cell.disciplina}</p>
                           <p style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.5)' }}>{cell.professorNome.split(' ')[0]}</p>
+                          {editMode && (
+                            <p style={{ fontSize: '0.65rem', color: color!, opacity: 0.7, marginTop: 2 }}>✏ clique p/ editar</p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Edit popup */}
+                      {isEditing && cell && (
+                        <div
+                          onClick={e => e.stopPropagation()}
+                          style={{
+                            position: 'absolute', top: 0, left: 0, zIndex: 20,
+                            background: 'var(--bg-card)', border: `1px solid ${color}60`,
+                            borderRadius: 10, padding: '0.75rem', minWidth: 220,
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                          }}
+                        >
+                          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 600 }}>
+                            Trocar professor — {cell.disciplina}
+                          </p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', maxHeight: 200, overflowY: 'auto' }}>
+                            {turmaAtrs
+                              .filter(a => a.disciplina === cell.disciplina)
+                              .map(a => {
+                                const p = profMap.get(a.professor_id);
+                                const isCurrent = a.id === cell.atrId;
+                                return (
+                                  <button
+                                    key={a.id}
+                                    disabled={saving}
+                                    onClick={() => handleSwapProf(dia.id, slot, cell.atrId, a.id)}
+                                    style={{
+                                      display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                      padding: '0.45rem 0.7rem', borderRadius: 6, border: 'none',
+                                      cursor: 'pointer', fontSize: '0.82rem',
+                                      background: isCurrent ? `${color}20` : 'rgba(255,255,255,0.06)',
+                                      color: isCurrent ? color! : 'var(--text-main)',
+                                      fontWeight: isCurrent ? 700 : 400,
+                                    }}
+                                  >
+                                    {isCurrent && <Check size={13} />}
+                                    {p?.nome ?? '—'}
+                                  </button>
+                                );
+                              })}
+                          </div>
+                          <button onClick={() => setEditingCell(null)} style={{ marginTop: '0.5rem', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                            <X size={12} /> Cancelar
+                          </button>
                         </div>
                       )}
                     </td>
@@ -88,7 +191,6 @@ export default function SolutionGrid({ solution }: Props) {
     if (!prof) return <p style={{ color: 'var(--text-muted)', padding: '2rem' }}>Selecione um professor.</p>;
 
     type Cell = { disciplina: string; turmaNome: string } | null;
-    // grid[dia][absSlot] → Cell
     const grid: Record<number, Record<number, Cell>> = {};
     for (let d = 1; d <= 6; d++) grid[d] = {};
 
@@ -153,16 +255,17 @@ export default function SolutionGrid({ solution }: Props) {
   return (
     <div className="glass-panel" style={{ overflow: 'hidden' }}>
       <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-color)', flexWrap: 'wrap', background: 'rgba(255,255,255,0.02)' }}>
+        {/* View mode toggle */}
         <div style={{ display: 'flex', background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 3 }}>
           {(['turma', 'professor'] as const).map(mode => (
-            <button key={mode} onClick={() => { setViewMode(mode); setSelectedId(mode === 'turma' ? (turmas[0]?.id ?? '') : (professores[0]?.id ?? '')); }}
+            <button key={mode} onClick={() => { setViewMode(mode); setSelectedId(mode === 'turma' ? (turmas[0]?.id ?? '') : (professores[0]?.id ?? '')); setEditingCell(null); }}
               style={{ padding: '0.4rem 1rem', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem', background: viewMode === mode ? 'rgba(59,130,246,0.35)' : 'transparent', color: viewMode === mode ? 'white' : 'var(--text-muted)', transition: 'all 0.15s' }}>
               {mode === 'turma' ? 'Por Turma' : 'Por Professor'}
             </button>
           ))}
         </div>
 
-        <select className="input-field" style={{ flex: 1, maxWidth: 260 }} value={selectedId} onChange={e => setSelectedId(e.target.value)}>
+        <select className="input-field" style={{ flex: 1, maxWidth: 260 }} value={selectedId} onChange={e => { setSelectedId(e.target.value); setEditingCell(null); }}>
           {entities.map((e: any) => <option key={e.id} value={e.id}>{e.nome}</option>)}
         </select>
 
@@ -171,7 +274,33 @@ export default function SolutionGrid({ solution }: Props) {
             {TURNO_LABEL[turmaMap.get(selectedId)!.turno as Turno]}
           </span>
         )}
+
+        {/* Edit mode toggle */}
+        {isViewTurma && (
+          <button
+            onClick={() => { setEditMode(v => !v); setEditingCell(null); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.4rem',
+              padding: '0.4rem 0.9rem', borderRadius: 8, border: 'none', cursor: 'pointer',
+              background: editMode ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.07)',
+              color: editMode ? '#10b981' : 'var(--text-muted)',
+              fontWeight: editMode ? 700 : 400, fontSize: '0.82rem',
+              outline: editMode ? '1px solid rgba(16,185,129,0.4)' : '1px solid var(--border-color)',
+              transition: 'all 0.2s',
+            }}
+          >
+            <Edit3 size={14} />
+            {editMode ? 'Editando...' : 'Editar Grade'}
+          </button>
+        )}
       </div>
+
+      {editMode && (
+        <div style={{ padding: '0.6rem 1.25rem', background: 'rgba(16,185,129,0.06)', borderBottom: '1px solid rgba(16,185,129,0.15)', fontSize: '0.8rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Edit3 size={13} />
+          Modo edição ativo — clique em qualquer célula para trocar o professor daquele slot.
+        </div>
+      )}
 
       <div style={{ padding: '1.25rem' }}>
         {isViewTurma ? renderTurmaGrid() : renderProfGrid()}

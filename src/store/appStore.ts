@@ -48,6 +48,7 @@ interface AppState {
   // Grades Geradas
   saveGrades: (rows: Omit<GradeGerada, 'id' | 'created_at'>[]) => Promise<boolean>;
   clearGrades: () => Promise<boolean>;
+  updateGradeSlot: (gradeId: string, atribuicaoId: string) => Promise<boolean>;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -232,6 +233,19 @@ export const useAppStore = create<AppState>((set) => ({
     try {
       await withTimeout(supabase.from('grades_geradas').delete().neq('id', '00000000-0000-0000-0000-000000000000'));
       set({ gradesGeradas: [] });
+      return true;
+    } catch { return false; }
+  },
+
+  updateGradeSlot: async (gradeId, atribuicaoId) => {
+    try {
+      const { data, error } = await withTimeout(
+        supabase.from('grades_geradas').update({ atribuicao_id: atribuicaoId }).eq('id', gradeId).select().single()
+      );
+      if (error || !data) { console.error(error); return false; }
+      set(s => ({
+        gradesGeradas: s.gradesGeradas.map(g => g.id === gradeId ? { ...g, atribuicao_id: atribuicaoId } : g),
+      }));
       return true;
     } catch { return false; }
   },
