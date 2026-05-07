@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { useAppStore } from '../../store/appStore';
 import {
   Plus, Trash2, ChevronDown, ChevronUp, X, BookOpen,
-  Calendar, Check, Edit2, Save, ArrowRight,
+  Calendar, Check, Edit2, Save, ArrowRight, Sparkles,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { Professor } from '../../types/database';
+import type { Professor, Turma, DiaSemana } from '../../types/database';
 import { DIAS_SEMANA, MATERIAS_BNCC } from '../../lib/constants';
+import { runSolver } from '../../lib/algorithm';
 
 const TURNOS = [
   { id: 'manha', label: 'Manhã' },
@@ -14,12 +15,11 @@ const TURNOS = [
   { id: 'noite', label: 'Noite' },
 ] as const;
 
-type InnerTab = 'materias' | 'disponibilidade';
+type InnerTab = 'materias' | 'disponibilidade' | 'lote';
 
 interface AtribWizard {
   turmaId: string;
   disciplina: string;
-  aulasSemanais: number;
 }
 
 // ─── Quick-add wizard state ────────────────────────────────────────────────────
@@ -28,6 +28,9 @@ interface WizardState {
   materiasSelecionadas: string[];
   diasBloqueados: Set<string>; // "dia-turno"
   atribuicoes: AtribWizard[];
+  bulkOption: 'none' | '6to9' | '1to3' | 'both' | 'all';
+  bulkMateria: string;
+  autoGenerateSchedule: boolean;
 }
 
 const emptyWizard = (): WizardState => ({
@@ -35,18 +38,34 @@ const emptyWizard = (): WizardState => ({
   materiasSelecionadas: [],
   diasBloqueados: new Set(),
   atribuicoes: [],
+  bulkOption: 'none',
+  bulkMateria: '',
+  autoGenerateSchedule: true,
 });
 
 interface Props {
   onGoToGerar?: () => void;
 }
 
+// Helper to check if a class (turma) matches the selected range for bulk assignment
+const matchTurmaForBulk = (turma: Turma, bulkOption: string) => {
+  if (bulkOption === 'all') return true;
+  const nivel = turma.nivel.toLowerCase();
+  const isFundII = nivel.includes('fund. ii') || nivel.includes('6º') || nivel.includes('7º') || nivel.includes('8º') || nivel.includes('9º');
+  const isMedio = nivel.includes('médio') || nivel.includes('medio') || nivel.includes('1º ano') || nivel.includes('2º ano') || nivel.includes('3º ano') || nivel.includes('médio');
+  
+  if (bulkOption === '6to9') return isFundII;
+  if (bulkOption === '1to3') return isMedio;
+  if (bulkOption === 'both') return isFundII || isMedio;
+  return false;
+};
+
 export default function ProfessoresTab({ onGoToGerar }: Props) {
   const {
-    professores, indisponibilidades, turmas,
+    professores, indisponibilidades, turmas, atribuicoes,
     addProfessor, deleteProfessor,
     setIndisponibilidade, updateProfessorMaterias,
-    addAtribuicao
+    addAtribuicao, saveGrades
   } = useAppStore();
 
   // ── wizard ──────────────────────────────────────────────────────────────────
@@ -63,14 +82,98 @@ export default function ProfessoresTab({ onGoToGerar }: Props) {
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editNameVal, setEditNameVal] = useState('');
 
+  // ─── edit bulk states ────────────────────────────────────────────────────────
+  const [editBulkOpt, setEditBulkOpt] = useState<'none' | '6to9' | '1to3' | 'both' | 'all'>('none');
+  const [editBulkMat, setEditBulkMat] = useState('');
+  const [editBulkAuto, setEditBulkAuto] = useState(true);
+  const [applyingBulk, setApplyingBulk] = useState<string | null>(null);
+
+  const handleApplyBulk = async (profId: string) => {
+    if (editBulkOpt === 'none' || !editBulkMat) return;
+    setApplyingBulk(profId);
+
+    const matchingTurmas = turmas.filter(t => matchTurmaForBulk(t, editBulkOpt));
+    if (matchingTurmas.length === 0) {
+      toast.error('Nenhuma turma cadastrada corresponde a esta faixa de atribuição.');
+      setApplyingBulk(null);
+      return;
+    }
+
+    const resolveToastId = toast.loading('Aplicando atribuições...');
+
+    // Save each assignment
+    let count = 0;
+    for (const t of matchingTurmas) {
+      const alreadyAssigned = atribuicoes.some(a => a.professor_id === profId && a.turma_id === t.id && a.disciplina === editBulkMat);
+      if (!alreadyAssigned) {
+        const aulas = t.carga_horaria?.[editBulkMat] ?? 2;
+        await addAtribuicao({
+          professor_id: profId,
+          turma_id: t.id,
+          disciplina: editBulkMat,
+          aulas_semanais: aulas
+        });
+        count++;
+      }
+    }
+
+    toast.success(`${count} atribuição(ões) realizada(s) com sucesso!`, { id: resolveToastId });
+
+    if (editBulkAuto) {
+      const solverToastId = toast.loading('Calculando novos horários...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const state = useAppStore.getState();
+
+      const result = runSolver({
+        professores: state.professores,
+        turmas: state.turmas,
+        atribuicoes: state.atribuicoes,
+        indisponibilidades: state.indisponibilidades,
+        maxSolutions: 5,
+      });
+
+      if (result.infeasible || result.solutions.length === 0) {
+        toast.error(`Atribuições salvas, mas não foi possível gerar uma grade válida: ${result.message}`, { id: solverToastId, duration: 6000 });
+      } else {
+        const rows = result.solutions.flatMap(sol =>
+          sol.events.map(ev => ({
+            solution_index: sol.index,
+            atribuicao_id: ev.atribuicaoId,
+            dia_semana: ev.dia as DiaSemana,
+            slot_relativo: ev.slotRelativo,
+          }))
+        );
+        const saved = await saveGrades(rows);
+        if (saved) {
+          toast.success(`Nova grade horária recalculada com sucesso!`, { id: solverToastId, duration: 4000 });
+          if (onGoToGerar) {
+            setTimeout(() => { onGoToGerar(); }, 800);
+          }
+        } else {
+          toast.error('Erro ao salvar as novas grades recalculadas.', { id: solverToastId });
+        }
+      }
+    }
+
+    setApplyingBulk(null);
+    setEditBulkOpt('none');
+    setEditBulkMat('');
+  };
+
   // ─── wizard helpers ──────────────────────────────────────────────────────────
   const toggleWizMateria = (m: string) =>
-    setWiz(w => ({
-      ...w,
-      materiasSelecionadas: w.materiasSelecionadas.includes(m)
+    setWiz(w => {
+      const nextMaterias = w.materiasSelecionadas.includes(m)
         ? w.materiasSelecionadas.filter(x => x !== m)
-        : [...w.materiasSelecionadas, m],
-    }));
+        : [...w.materiasSelecionadas, m];
+      return {
+        ...w,
+        materiasSelecionadas: nextMaterias,
+        bulkMateria: w.bulkMateria && nextMaterias.includes(w.bulkMateria)
+          ? w.bulkMateria
+          : nextMaterias[0] || '',
+      };
+    });
 
   const toggleWizDia = (dia: number, turno: string) => {
     const key = `${dia}-${turno}`;
@@ -103,20 +206,79 @@ export default function ProfessoresTab({ onGoToGerar }: Props) {
         await setIndisponibilidade(fresh.id, parseInt(diaStr), turno, true);
       }
 
-      // 5. Create atribuicoes
+      // 5. Create manual atribuicoes
       for (const atr of wiz.atribuicoes) {
         if (atr.turmaId && atr.disciplina) {
+          const selectedTurma = turmas.find(t => t.id === atr.turmaId);
+          const aulas = selectedTurma?.carga_horaria?.[atr.disciplina] ?? 2;
           await addAtribuicao({
             professor_id: fresh.id,
             turma_id: atr.turmaId,
             disciplina: atr.disciplina,
-            aulas_semanais: atr.aulasSemanais
+            aulas_semanais: aulas
           });
         }
       }
+
+      // 6. Create bulk assignments
+      if (wiz.bulkOption !== 'none' && wiz.bulkMateria) {
+        const matchingTurmas = turmas.filter(t => matchTurmaForBulk(t, wiz.bulkOption));
+        for (const t of matchingTurmas) {
+          const alreadyAssigned = wiz.atribuicoes.some(atr => atr.turmaId === t.id && atr.disciplina === wiz.bulkMateria);
+          if (!alreadyAssigned) {
+            const aulas = t.carga_horaria?.[wiz.bulkMateria] ?? 2;
+            await addAtribuicao({
+              professor_id: fresh.id,
+              turma_id: t.id,
+              disciplina: wiz.bulkMateria,
+              aulas_semanais: aulas
+            });
+          }
+        }
+      }
+
+      // 7. Auto-generate schedule if selected
+      if (wiz.autoGenerateSchedule) {
+        const resolveToastId = toast.loading('Calculando novos horários...');
+        
+        // Let the state update finish and get the latest values
+        await new Promise(resolve => setTimeout(resolve, 300));
+        const state = useAppStore.getState();
+
+        const result = runSolver({
+          professores: state.professores,
+          turmas: state.turmas,
+          atribuicoes: state.atribuicoes,
+          indisponibilidades: state.indisponibilidades,
+          maxSolutions: 5,
+        });
+
+        if (result.infeasible || result.solutions.length === 0) {
+          toast.error(`Professor adicionado, mas não foi possível gerar uma grade válida: ${result.message}`, { id: resolveToastId, duration: 6000 });
+        } else {
+          const rows = result.solutions.flatMap(sol =>
+            sol.events.map(ev => ({
+              solution_index: sol.index,
+              atribuicao_id: ev.atribuicaoId,
+              dia_semana: ev.dia as DiaSemana,
+              slot_relativo: ev.slotRelativo,
+            }))
+          );
+          const saved = await saveGrades(rows);
+          if (saved) {
+            toast.success(`Professor cadastrado e nova grade horária gerada com sucesso!`, { id: resolveToastId, duration: 4000 });
+            if (onGoToGerar) {
+              setTimeout(() => { onGoToGerar(); }, 800);
+            }
+          } else {
+            toast.error('Erro ao salvar as novas grades geradas no banco.', { id: resolveToastId });
+          }
+        }
+      } else {
+        toast.success(`Professor "${wiz.nome.trim()}" adicionado com sucesso!`);
+      }
     }
 
-    toast.success(`Professor "${wiz.nome.trim()}" adicionado!`);
     setWiz(emptyWizard());
     setShowForm(false);
     setAdding(false);
@@ -249,6 +411,119 @@ export default function ProfessoresTab({ onGoToGerar }: Props) {
               </div>
             </div>
 
+            {/* Atribuição Rápida em Lote (Opcional) */}
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1.25rem', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.88rem', fontWeight: 700, color: 'white' }}>
+                  <Sparkles size={16} color="var(--primary)" /> Atribuição Rápida em Lote (Opcional)
+                </label>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                  Atribua este professor a várias turmas automaticamente de acordo com as séries/anos correspondentes.
+                </p>
+              </div>
+
+              {/* Cards de Opções */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.6rem' }}>
+                {([
+                  { id: 'none', label: 'Manual', desc: 'Atribuições manuais abaixo' },
+                  { id: '6to9', label: '6º ao 9º Ano', desc: 'Turmas do Ensino Fund. II' },
+                  { id: '1to3', label: '1º ao 3º Ano', desc: 'Turmas do Ensino Médio' },
+                  { id: 'both', label: 'Ambos os Níveis', desc: 'Fund. II e Ensino Médio' },
+                  { id: 'all', label: 'Todas as Salas', desc: 'Todas as turmas registradas' },
+                ] as const).map(opt => {
+                  const active = wiz.bulkOption === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setWiz(w => ({ ...w, bulkOption: opt.id }))}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        gap: '0.25rem',
+                        padding: '0.75rem 1rem',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        background: active ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.02)',
+                        border: active ? '2px solid var(--primary)' : '1px solid var(--border-color)',
+                        boxShadow: active ? '0 0 12px rgba(59,130,246,0.15)' : 'none',
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <span style={{ fontWeight: 700, fontSize: '0.84rem', color: active ? 'white' : 'var(--text-muted)' }}>
+                        {opt.label}
+                      </span>
+                      <span style={{ fontSize: '0.72rem', color: active ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>
+                        {opt.desc}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {wiz.bulkOption !== 'none' && (
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.03)' }} className="animate-fade-in">
+                  <div style={{ flex: '1 1 200px' }}>
+                    <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                      Matéria para Atribuição em Lote *
+                    </label>
+                    <select
+                      className="input-field"
+                      style={{ height: 38 }}
+                      value={wiz.bulkMateria}
+                      onChange={e => setWiz(w => ({ ...w, bulkMateria: e.target.value }))}
+                      required
+                    >
+                      <option value="">Selecione a disciplina...</option>
+                      {wiz.materiasSelecionadas.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                    {wiz.materiasSelecionadas.length === 0 && (
+                      <p style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '0.3rem' }}>
+                        ⚠️ Selecione as matérias lecionadas no passo acima primeiro.
+                      </p>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', height: 38, marginLeft: 'auto' }}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.6rem',
+                        cursor: 'pointer',
+                        padding: '0.5rem 0.8rem',
+                        borderRadius: '8px',
+                        background: 'rgba(16,185,129,0.06)',
+                        border: '1px solid rgba(16,185,129,0.2)',
+                        fontSize: '0.84rem',
+                        fontWeight: 600,
+                        color: '#10b981',
+                        userSelect: 'none',
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={wiz.autoGenerateSchedule}
+                        onChange={e => setWiz(w => ({ ...w, autoGenerateSchedule: e.target.checked }))}
+                        style={{
+                          width: 15,
+                          height: 15,
+                          accentColor: '#10b981',
+                          cursor: 'pointer',
+                        }}
+                      />
+                      <span>Gerar horários automaticamente após salvar</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Atribuições / Turmas */}
             <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>
@@ -287,21 +562,13 @@ export default function ProfessoresTab({ onGoToGerar }: Props) {
                       {wiz.materiasSelecionadas.length === 0 && <option value="" disabled>Selecione as matérias acima primeiro</option>}
                     </select>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(0,0,0,0.2)', padding: '0 0.5rem', borderRadius: 6, border: '1px solid var(--border-color)', height: 38 }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Aulas/sem:</span>
-                      <input
-                        type="number"
-                        min={1} max={12}
-                        className="input-field"
-                        style={{ width: 50, height: 28, padding: '0 0.4rem', border: 'none', background: 'transparent' }}
-                        value={atr.aulasSemanais}
-                        onChange={e => setWiz(w => {
-                          const newAtrs = [...w.atribuicoes];
-                          newAtrs[index].aulasSemanais = parseInt(e.target.value) || 1;
-                          return { ...w, atribuicoes: newAtrs };
-                        })}
-                      />
-                    </div>
+                    {atr.turmaId && atr.disciplina && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(59,130,246,0.1)', padding: '0 0.75rem', borderRadius: 8, border: '1px solid rgba(59,130,246,0.2)', height: 38 }}>
+                        <span style={{ fontSize: '0.78rem', color: '#93c5fd', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                          {turmas.find(t => t.id === atr.turmaId)?.carga_horaria?.[atr.disciplina] ?? 2} aulas/sem
+                        </span>
+                      </div>
+                    )}
 
                     <button
                       type="button"
@@ -467,6 +734,7 @@ export default function ProfessoresTab({ onGoToGerar }: Props) {
                     {([
                       { id: 'materias' as InnerTab, label: 'Matérias', icon: <BookOpen size={14} /> },
                       { id: 'disponibilidade' as InnerTab, label: 'Disponibilidade', icon: <Calendar size={14} /> },
+                      { id: 'lote' as InnerTab, label: 'Atribuição em Lote', icon: <Sparkles size={14} /> },
                     ]).map(t => (
                       <button key={t.id} onClick={() => setTab(prof.id, t.id)}
                         style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.65rem 1.25rem', background: 'transparent', border: 'none', cursor: 'pointer', color: tab === t.id ? 'white' : 'var(--text-muted)', fontWeight: tab === t.id ? 600 : 400, fontSize: '0.84rem', borderBottom: tab === t.id ? '2px solid var(--primary)' : '2px solid transparent' }}>
@@ -538,6 +806,134 @@ export default function ProfessoresTab({ onGoToGerar }: Props) {
                           </tbody>
                         </table>
                       </div>
+                    </div>
+                  )}
+
+                  {tab === 'lote' && (
+                    <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                        Atribua <strong style={{ color: 'white' }}>{prof.nome}</strong> a várias turmas de uma só vez e recalcule a grade horária:
+                      </p>
+
+                      {/* Cards de Opções */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.6rem' }}>
+                        {([
+                          { id: 'none', label: 'Selecionar...', desc: 'Selecione uma opção' },
+                          { id: '6to9', label: '6º ao 9º Ano', desc: 'Turmas do Ensino Fund. II' },
+                          { id: '1to3', label: '1º ao 3º Ano', desc: 'Turmas do Ensino Médio' },
+                          { id: 'both', label: 'Ambos os Níveis', desc: 'Fund. II e Ensino Médio' },
+                          { id: 'all', label: 'Todas as Salas', desc: 'Todas as turmas registradas' },
+                        ] as const).map(opt => {
+                          const active = editBulkOpt === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => {
+                                setEditBulkOpt(opt.id);
+                                if (!editBulkMat) {
+                                  setEditBulkMat(prof.materias?.[0] || '');
+                                }
+                              }}
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'flex-start',
+                                gap: '0.25rem',
+                                padding: '0.75rem 1rem',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                background: active ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.02)',
+                                border: active ? '2px solid var(--primary)' : '1px solid var(--border-color)',
+                                boxShadow: active ? '0 0 12px rgba(59,130,246,0.15)' : 'none',
+                                transition: 'all 0.2s ease',
+                              }}
+                            >
+                              <span style={{ fontWeight: 700, fontSize: '0.84rem', color: active ? 'white' : 'var(--text-muted)' }}>
+                                {opt.label}
+                              </span>
+                              <span style={{ fontSize: '0.72rem', color: active ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)' }}>
+                                {opt.desc}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {editBulkOpt !== 'none' && (
+                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.03)' }} className="animate-fade-in">
+                          <div style={{ flex: '1 1 200px' }}>
+                            <label style={{ display: 'block', marginBottom: '0.35rem', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                              Matéria para Atribuição em Lote *
+                            </label>
+                            <select
+                              className="input-field"
+                              style={{ height: 38 }}
+                              value={editBulkMat}
+                              onChange={e => setEditBulkMat(e.target.value)}
+                              required
+                            >
+                              <option value="">Selecione a disciplina...</option>
+                              {prof.materias?.map(m => (
+                                <option key={m} value={m}>{m}</option>
+                              ))}
+                            </select>
+                            {(prof.materias ?? []).length === 0 && (
+                              <p style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '0.3rem' }}>
+                                ⚠️ O professor não possui matérias cadastradas. Cadastre-as na aba "Matérias" ao lado.
+                              </p>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', height: 38, marginLeft: 'auto' }}>
+                            <label
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.6rem',
+                                cursor: 'pointer',
+                                padding: '0.5rem 0.8rem',
+                                borderRadius: '8px',
+                                background: 'rgba(16,185,129,0.06)',
+                                border: '1px solid rgba(16,185,129,0.2)',
+                                fontSize: '0.84rem',
+                                fontWeight: 600,
+                                color: '#10b981',
+                                userSelect: 'none',
+                                transition: 'all 0.15s',
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={editBulkAuto}
+                                onChange={e => setEditBulkAuto(e.target.checked)}
+                                style={{
+                                  width: 15,
+                                  height: 15,
+                                  accentColor: '#10b981',
+                                  cursor: 'pointer',
+                                }}
+                              />
+                              <span>Gerar horários automaticamente</span>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+
+                      {editBulkOpt !== 'none' && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleApplyBulk(prof.id)}
+                            disabled={applyingBulk === prof.id || !editBulkMat}
+                            className="btn btn-primary"
+                            style={{ padding: '0.6rem 1.5rem', fontSize: '0.88rem', fontWeight: 700 }}
+                          >
+                            {applyingBulk === prof.id ? 'Aplicando Atribuições...' : 'Aplicar Atribuições em Lote'}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

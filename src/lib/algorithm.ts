@@ -116,7 +116,7 @@ export function runSolver(input: SolverInput): SolverOutput {
   }
 
   const solutions: SolverSolution[] = [];
-  const deadline = Date.now() + 25_000; // 25 second budget
+  const deadline = Date.now() + 2000; // 2 second budget to prevent browser freeze
 
   // Run solver multiple times with different domain orderings
   for (let run = 0; run < maxSolutions * 4 && solutions.length < maxSolutions; run++) {

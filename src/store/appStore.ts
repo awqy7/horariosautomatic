@@ -39,6 +39,7 @@ interface AppState {
   // Turmas
   addTurma: (t: Omit<Turma, 'id' | 'created_at'>) => Promise<boolean>;
   deleteTurma: (id: string) => Promise<boolean>;
+  updateTurmaCarga: (id: string, carga_horaria: Record<string, number>) => Promise<boolean>;
 
   // Atribuições
   addAtribuicao: (a: Omit<Atribuicao, 'id' | 'created_at'>) => Promise<boolean>;
@@ -178,6 +179,17 @@ export const useAppStore = create<AppState>((set) => ({
         turmas: s.turmas.filter(t => t.id !== id),
         atribuicoes: s.atribuicoes.filter(a => a.turma_id !== id),
       }));
+      return true;
+    } catch { return false; }
+  },
+
+  updateTurmaCarga: async (id, carga_horaria) => {
+    try {
+      const { data, error } = await withTimeout(
+        supabase.from('turmas').update({ carga_horaria }).eq('id', id).select().single()
+      );
+      if (error || !data) { console.error(error); return false; }
+      set(s => ({ turmas: s.turmas.map(t => t.id === id ? (data as Turma) : t) }));
       return true;
     } catch { return false; }
   },

@@ -22,6 +22,7 @@ export interface Turma {
   nivel: string;
   turno: Turno;
   aulas_por_dia: 5 | 6;
+  carga_horaria?: Record<string, number>;
   created_at: string;
 }
 
