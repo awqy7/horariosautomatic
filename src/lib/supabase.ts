@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'educasched_db';
+const SEED_VERSION = 2;
 
 type Row = Record<string, any>;
+type DB = Record<string, any>; // tables + _seed_version
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -10,7 +12,7 @@ function now(): string {
   return new Date().toISOString();
 }
 
-function seedData(): Record<string, Row[]> {
+function seedData(): DB {
   const id = (prefix: string) => `${prefix}-${generateId().slice(0, 8)}`;
 
   const profIds = [id('prof'), id('prof'), id('prof'), id('prof'), id('prof')];
@@ -69,20 +71,21 @@ function seedData(): Record<string, Row[]> {
   return { professores, indisponibilidades, turmas, atribuicoes, grades_geradas: [] };
 }
 
-function getDb(): Record<string, Row[]> {
+function getDb(): DB {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed.professores?.length || parsed.turmas?.length) return parsed;
+      if (parsed._seed_version === SEED_VERSION && (parsed.professores?.length || parsed.turmas?.length)) return parsed;
     }
   } catch { /* empty */ }
   const seeded = seedData();
+  seeded._seed_version = SEED_VERSION;
   saveDb(seeded);
   return seeded;
 }
 
-function saveDb(db: Record<string, Row[]>) {
+function saveDb(db: DB) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
 }
 
