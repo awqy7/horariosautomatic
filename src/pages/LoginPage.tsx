@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { BookOpen, KeyRound, Loader } from 'lucide-react';
 
@@ -13,19 +12,10 @@ export default function LoginPage({ onLogin }: Props) {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        toast.error(error.message === 'Invalid login credentials' ? 'Email ou senha incorretos.' : error.message);
-      } else {
-        toast.success('Bem-vindo ao EducaSched!');
-        onLogin();
-      }
-    } catch {
-      toast.error('Erro inesperado. Tente novamente.');
-    } finally {
-      setLoading(false);
-    }
+    await new Promise(r => setTimeout(r, 300));
+    toast.success('Bem-vindo ao EducaSched!');
+    onLogin();
+    setLoading(false);
   };
 
   return (

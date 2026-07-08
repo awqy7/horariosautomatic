@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
 import { BookOpen, Users, School, Zap, LogOut, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -17,8 +16,7 @@ export default function AdminPanel({ onLogout }: Props) {
 
   useEffect(() => { fetchAll(); }, []);
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
+  const handleLogout = () => {
     toast.success('Sessão encerrada.');
     onLogout();
   };
