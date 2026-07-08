@@ -13,7 +13,6 @@ function now(): string {
 function seedData(): Record<string, Row[]> {
   const id = (prefix: string) => `${prefix}-${generateId().slice(0, 8)}`;
 
-  const turmaIds = [id('turma'), id('turma'), id('turma')];
   const profIds = [id('prof'), id('prof'), id('prof'), id('prof'), id('prof')];
 
   const defaultCarga: Record<string, number> = {
@@ -29,47 +28,37 @@ function seedData(): Record<string, Row[]> {
     { id: profIds[4], nome: 'Roberto (Ed. Física/Inglês)', email: null, materias: ['Educação Física', 'Língua Inglesa'], created_at: now() },
   ];
 
-  const turmas: Row[] = [
-    { id: turmaIds[0], nome: '6º Ano A', nivel: '6º Ano – Fund. II', turno: 'manha', aulas_por_dia: 5, carga_horaria: defaultCarga, created_at: now() },
-    { id: turmaIds[1], nome: '7º Ano A', nivel: '7º Ano – Fund. II', turno: 'manha', aulas_por_dia: 5, carga_horaria: defaultCarga, created_at: now() },
-    { id: turmaIds[2], nome: '1º Ano EM', nivel: '1º Ano – Médio', turno: 'manha', aulas_por_dia: 5, carga_horaria: defaultCarga, created_at: now() },
+  const turmaDefs = [
+    { nome: '6º Ano A', nivel: '6º Ano – Fund. II', turno: 'manha' },
+    { nome: '7º Ano A', nivel: '7º Ano – Fund. II', turno: 'manha' },
+    { nome: '8º Ano A', nivel: '8º Ano – Fund. II', turno: 'manha' },
+    { nome: '9º Ano A', nivel: '9º Ano – Fund. II', turno: 'manha' },
+    { nome: '6º Ano B', nivel: '6º Ano – Fund. II', turno: 'tarde' },
+    { nome: '1º Ano EM', nivel: '1º Ano – Médio', turno: 'manha' },
+    { nome: '2º Ano EM', nivel: '2º Ano – Médio', turno: 'manha' },
+    { nome: '3º Ano EM', nivel: '3º Ano – Médio', turno: 'manha' },
   ];
+  const turmas: Row[] = turmaDefs.map(t => ({
+    id: generateId(), ...t, aulas_por_dia: 5, carga_horaria: defaultCarga, created_at: now(),
+  }));
 
   const atr = (professor_id: string, turma_id: string, disciplina: string, aulas_semanais: number): Row => ({
     id: generateId(), professor_id, turma_id, disciplina, aulas_semanais, created_at: now(),
   });
 
-  const atribuicoes: Row[] = [
-    // Carlos
-    atr(profIds[0], turmaIds[0], 'Língua Portuguesa', 5),
-    atr(profIds[0], turmaIds[0], 'Artes', 2),
-    atr(profIds[0], turmaIds[1], 'Língua Portuguesa', 5),
-    atr(profIds[0], turmaIds[1], 'Artes', 2),
-    atr(profIds[0], turmaIds[2], 'Língua Portuguesa', 5),
-    atr(profIds[0], turmaIds[2], 'Artes', 2),
-    // Ana
-    atr(profIds[1], turmaIds[0], 'Matemática', 5),
-    atr(profIds[1], turmaIds[1], 'Matemática', 5),
-    atr(profIds[1], turmaIds[2], 'Matemática', 5),
-    // Marcos
-    atr(profIds[2], turmaIds[0], 'História', 3),
-    atr(profIds[2], turmaIds[0], 'Geografia', 3),
-    atr(profIds[2], turmaIds[1], 'História', 3),
-    atr(profIds[2], turmaIds[1], 'Geografia', 3),
-    atr(profIds[2], turmaIds[2], 'História', 3),
-    atr(profIds[2], turmaIds[2], 'Geografia', 3),
-    // Julia
-    atr(profIds[3], turmaIds[0], 'Ciências', 3),
-    atr(profIds[3], turmaIds[1], 'Ciências', 3),
-    atr(profIds[3], turmaIds[2], 'Ciências', 3),
-    // Roberto
-    atr(profIds[4], turmaIds[0], 'Educação Física', 2),
-    atr(profIds[4], turmaIds[0], 'Língua Inglesa', 2),
-    atr(profIds[4], turmaIds[1], 'Educação Física', 2),
-    atr(profIds[4], turmaIds[1], 'Língua Inglesa', 2),
-    atr(profIds[4], turmaIds[2], 'Educação Física', 2),
-    atr(profIds[4], turmaIds[2], 'Língua Inglesa', 2),
-  ];
+  const atribuicoes: Row[] = [];
+  for (const t of turmas) {
+    atribuicoes.push(
+      atr(profIds[0], t.id, 'Língua Portuguesa', 5),
+      atr(profIds[0], t.id, 'Artes', 2),
+      atr(profIds[1], t.id, 'Matemática', 5),
+      atr(profIds[2], t.id, 'História', 3),
+      atr(profIds[2], t.id, 'Geografia', 3),
+      atr(profIds[3], t.id, 'Ciências', 3),
+      atr(profIds[4], t.id, 'Educação Física', 2),
+      atr(profIds[4], t.id, 'Língua Inglesa', 2),
+    );
+  }
 
   // Block some availability for demo
   const indisponibilidades: Row[] = [
