@@ -31,12 +31,12 @@ function seedData(): Record<string, Row[]> {
   const turmaDefs = [
     { nome: '6º Ano A', nivel: '6º Ano – Fund. II', turno: 'manha' },
     { nome: '7º Ano A', nivel: '7º Ano – Fund. II', turno: 'manha' },
-    { nome: '8º Ano A', nivel: '8º Ano – Fund. II', turno: 'manha' },
-    { nome: '9º Ano A', nivel: '9º Ano – Fund. II', turno: 'manha' },
+    { nome: '8º Ano A', nivel: '8º Ano – Fund. II', turno: 'tarde' },
+    { nome: '9º Ano A', nivel: '9º Ano – Fund. II', turno: 'tarde' },
     { nome: '6º Ano B', nivel: '6º Ano – Fund. II', turno: 'tarde' },
     { nome: '1º Ano EM', nivel: '1º Ano – Médio', turno: 'manha' },
     { nome: '2º Ano EM', nivel: '2º Ano – Médio', turno: 'manha' },
-    { nome: '3º Ano EM', nivel: '3º Ano – Médio', turno: 'manha' },
+    { nome: '3º Ano EM', nivel: '3º Ano – Médio', turno: 'tarde' },
   ];
   const turmas: Row[] = turmaDefs.map(t => ({
     id: generateId(), ...t, aulas_por_dia: 5, carga_horaria: defaultCarga, created_at: now(),
