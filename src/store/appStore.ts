@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/db';
 import type {
   Professor, Indisponibilidade, Turma, Atribuicao, GradeGerada
 } from '../types/database';
@@ -66,11 +66,11 @@ export const useAppStore = create<AppState>((set) => ({
     try {
       const [profRes, indRes, turRes, atrRes, grRes] = await withTimeout(
         Promise.all([
-          supabase.from('professores').select('*').order('nome'),
-          supabase.from('indisponibilidades').select('*'),
-          supabase.from('turmas').select('*').order('nome'),
-          supabase.from('atribuicoes').select('*'),
-          supabase.from('grades_geradas').select('*').order('solution_index'),
+          db.from('professores').select('*').order('nome'),
+          db.from('indisponibilidades').select('*'),
+          db.from('turmas').select('*').order('nome'),
+          db.from('atribuicoes').select('*'),
+          db.from('grades_geradas').select('*').order('solution_index'),
         ]),
         10000
       );
@@ -92,7 +92,7 @@ export const useAppStore = create<AppState>((set) => ({
   addProfessor: async (nome, email) => {
     try {
       const { data, error } = await withTimeout(
-        supabase.from('professores').insert({ nome, email: email || null, materias: [] }).select().single()
+        db.from('professores').insert({ nome, email: email || null, materias: [] }).select().single()
       );
       if (error || !data) { console.error(error); return false; }
       set(s => ({ professores: [...s.professores, data as Professor].sort((a, b) => a.nome.localeCompare(b.nome)) }));
@@ -103,7 +103,7 @@ export const useAppStore = create<AppState>((set) => ({
   updateProfessorMaterias: async (id, materias) => {
     try {
       const { data, error } = await withTimeout(
-        supabase.from('professores').update({ materias }).eq('id', id).select().single()
+        db.from('professores').update({ materias }).eq('id', id).select().single()
       );
       if (error || !data) { console.error(error); return false; }
       set(s => ({ professores: s.professores.map(p => p.id === id ? { ...p, materias } : p) }));
@@ -113,7 +113,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   deleteProfessor: async (id) => {
     try {
-      const { error } = await withTimeout(supabase.from('professores').delete().eq('id', id));
+      const { error } = await withTimeout(db.from('professores').delete().eq('id', id));
       if (error) { console.error(error); return false; }
       set(s => ({
         professores: s.professores.filter(p => p.id !== id),
@@ -129,7 +129,7 @@ export const useAppStore = create<AppState>((set) => ({
     try {
       if (blocked) {
         const { data, error } = await withTimeout(
-          supabase.from('indisponibilidades')
+          db.from('indisponibilidades')
             .upsert({ professor_id: professorId, dia_semana: dia, turno }, { onConflict: 'professor_id,dia_semana,turno' })
             .select().single()
         );
@@ -142,7 +142,7 @@ export const useAppStore = create<AppState>((set) => ({
         });
       } else {
         const { error } = await withTimeout(
-          supabase.from('indisponibilidades')
+          db.from('indisponibilidades')
             .delete()
             .eq('professor_id', professorId)
             .eq('dia_semana', dia)
@@ -163,7 +163,7 @@ export const useAppStore = create<AppState>((set) => ({
   addTurma: async (t) => {
     try {
       const { data, error } = await withTimeout(
-        supabase.from('turmas').insert(t).select().single()
+        db.from('turmas').insert(t).select().single()
       );
       if (error || !data) { console.error(error); return false; }
       set(s => ({ turmas: [...s.turmas, data as Turma].sort((a, b) => a.nome.localeCompare(b.nome)) }));
@@ -173,7 +173,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   deleteTurma: async (id) => {
     try {
-      const { error } = await withTimeout(supabase.from('turmas').delete().eq('id', id));
+      const { error } = await withTimeout(db.from('turmas').delete().eq('id', id));
       if (error) { console.error(error); return false; }
       set(s => ({
         turmas: s.turmas.filter(t => t.id !== id),
@@ -186,7 +186,7 @@ export const useAppStore = create<AppState>((set) => ({
   updateTurmaCarga: async (id, carga_horaria) => {
     try {
       const { data, error } = await withTimeout(
-        supabase.from('turmas').update({ carga_horaria }).eq('id', id).select().single()
+        db.from('turmas').update({ carga_horaria }).eq('id', id).select().single()
       );
       if (error || !data) { console.error(error); return false; }
       set(s => ({ turmas: s.turmas.map(t => t.id === id ? (data as Turma) : t) }));
@@ -198,7 +198,7 @@ export const useAppStore = create<AppState>((set) => ({
   addAtribuicao: async (a) => {
     try {
       const { data, error } = await withTimeout(
-        supabase.from('atribuicoes').insert(a).select().single()
+        db.from('atribuicoes').insert(a).select().single()
       );
       if (error || !data) { console.error(error); return false; }
       set(s => ({ atribuicoes: [...s.atribuicoes, data as Atribuicao] }));
@@ -208,7 +208,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   deleteAtribuicao: async (id) => {
     try {
-      const { error } = await withTimeout(supabase.from('atribuicoes').delete().eq('id', id));
+      const { error } = await withTimeout(db.from('atribuicoes').delete().eq('id', id));
       if (error) { console.error(error); return false; }
       set(s => ({ atribuicoes: s.atribuicoes.filter(a => a.id !== id) }));
       return true;
@@ -218,7 +218,7 @@ export const useAppStore = create<AppState>((set) => ({
   updateAtribuicao: async (id, aulas_semanais) => {
     try {
       const { data, error } = await withTimeout(
-        supabase.from('atribuicoes').update({ aulas_semanais }).eq('id', id).select().single()
+        db.from('atribuicoes').update({ aulas_semanais }).eq('id', id).select().single()
       );
       if (error || !data) { console.error(error); return false; }
       set(s => ({ atribuicoes: s.atribuicoes.map(a => a.id === id ? (data as Atribuicao) : a) }));
@@ -230,10 +230,10 @@ export const useAppStore = create<AppState>((set) => ({
   saveGrades: async (rows) => {
     try {
       // Clear previous solutions first
-      await withTimeout(supabase.from('grades_geradas').delete().neq('id', '00000000-0000-0000-0000-000000000000'));
+      await withTimeout(db.from('grades_geradas').delete().neq('id', '00000000-0000-0000-0000-000000000000'));
       if (rows.length === 0) { set({ gradesGeradas: [] }); return true; }
       const { data, error } = await withTimeout(
-        supabase.from('grades_geradas').insert(rows as any).select()
+        db.from('grades_geradas').insert(rows as any).select()
       );
       if (error) { console.error(error); return false; }
       set({ gradesGeradas: (data as GradeGerada[]) || [] });
@@ -243,7 +243,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   clearGrades: async () => {
     try {
-      await withTimeout(supabase.from('grades_geradas').delete().neq('id', '00000000-0000-0000-0000-000000000000'));
+      await withTimeout(db.from('grades_geradas').delete().neq('id', '00000000-0000-0000-0000-000000000000'));
       set({ gradesGeradas: [] });
       return true;
     } catch { return false; }
@@ -252,7 +252,7 @@ export const useAppStore = create<AppState>((set) => ({
   updateGradeSlot: async (gradeId, atribuicaoId) => {
     try {
       const { data, error } = await withTimeout(
-        supabase.from('grades_geradas').update({ atribuicao_id: atribuicaoId }).eq('id', gradeId).select().single()
+        db.from('grades_geradas').update({ atribuicao_id: atribuicaoId }).eq('id', gradeId).select().single()
       );
       if (error || !data) { console.error(error); return false; }
       set(s => ({

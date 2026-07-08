@@ -13,9 +13,7 @@ function now(): string {
 }
 
 function seedData(): DB {
-  const id = (prefix: string) => `${prefix}-${generateId().slice(0, 8)}`;
-
-  const profIds = [id('prof'), id('prof'), id('prof'), id('prof'), id('prof')];
+  const profIds = Array.from({ length: 5 }, () => generateId());
 
   const defaultCarga: Record<string, number> = {
     'Língua Portuguesa': 5, Matemática: 5, História: 3, Geografia: 3,
@@ -33,12 +31,8 @@ function seedData(): DB {
   const turmaDefs = [
     { nome: '6º Ano A', nivel: '6º Ano – Fund. II', turno: 'manha' },
     { nome: '7º Ano A', nivel: '7º Ano – Fund. II', turno: 'manha' },
-    { nome: '8º Ano A', nivel: '8º Ano – Fund. II', turno: 'tarde' },
-    { nome: '9º Ano A', nivel: '9º Ano – Fund. II', turno: 'tarde' },
-    { nome: '6º Ano B', nivel: '6º Ano – Fund. II', turno: 'tarde' },
-    { nome: '1º Ano EM', nivel: '1º Ano – Médio', turno: 'manha' },
-    { nome: '2º Ano EM', nivel: '2º Ano – Médio', turno: 'manha' },
-    { nome: '3º Ano EM', nivel: '3º Ano – Médio', turno: 'tarde' },
+    { nome: '1º Ano EM', nivel: '1º Ano – Médio', turno: 'tarde' },
+    { nome: '2º Ano EM', nivel: '2º Ano – Médio', turno: 'tarde' },
   ];
   const turmas: Row[] = turmaDefs.map(t => ({
     id: generateId(), ...t, aulas_por_dia: 5, carga_horaria: defaultCarga, created_at: now(),
@@ -62,7 +56,6 @@ function seedData(): DB {
     );
   }
 
-  // Block some availability for demo
   const indisponibilidades: Row[] = [
     { id: generateId(), professor_id: profIds[2], dia_semana: 6, turno: 'manha', created_at: now() },
     { id: generateId(), professor_id: profIds[4], dia_semana: 3, turno: 'tarde', created_at: now() },
@@ -89,7 +82,7 @@ function saveDb(db: DB) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
 }
 
-class SupabaseQuery {
+class LocalQuery {
   private _filters: Array<(r: Row) => boolean> = [];
   private _orderCol: string | null = null;
   private _orderAsc = true;
@@ -204,25 +197,15 @@ class SupabaseQuery {
   }
 }
 
-export const supabase = {
+export const db = {
   from(table: string) {
     return {
-      select:      (_cols?: string) => new SupabaseQuery(table, 'select'),
-      insert:      (p: any)         => new SupabaseQuery(table, 'insert', p),
+      select:      (_cols?: string) => new LocalQuery(table, 'select'),
+      insert:      (p: any)         => new LocalQuery(table, 'insert', p),
       upsert:      (p: any, opts?: { onConflict?: string }) =>
-                                      new SupabaseQuery(table, 'upsert', p, opts?.onConflict),
-      update:      (p: any)         => new SupabaseQuery(table, 'update', p),
-      delete:      ()               => new SupabaseQuery(table, 'delete'),
+                                      new LocalQuery(table, 'upsert', p, opts?.onConflict),
+      update:      (p: any)         => new LocalQuery(table, 'update', p),
+      delete:      ()               => new LocalQuery(table, 'delete'),
     };
-  },
-  auth: {
-    signInWithPassword: async (_: { email: string; password: string }) => ({
-      data: { user: { id: 'local-user', email: _.email } },
-      error: null,
-    }),
-    signOut: async () => ({ error: null }),
-    onAuthStateChange: (_cb: (e: string, s: any) => void) => ({
-      data: { subscription: { unsubscribe: () => {} } },
-    }),
   },
 };

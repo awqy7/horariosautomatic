@@ -321,10 +321,8 @@ export default function ProfessoresTab({ onGoToGerar }: Props) {
     if (!editNameVal.trim()) { setEditingName(null); return; }
     setSaving(`name-${prof.id}`);
     // update via materias update trick — we just update the name in professores
-    // Since store doesn't have updateNome, we use a local workaround: re-fetch after
-    // For now update via supabase directly
-    const { supabase } = await import('../../lib/supabase');
-    const { error } = await supabase.from('professores').update({ nome: editNameVal.trim() }).eq('id', prof.id);
+    const { db } = await import('../../lib/db');
+    const { error } = await db.from('professores').update({ nome: editNameVal.trim() }).eq('id', prof.id);
     if (!error) {
       useAppStore.setState(s => ({
         professores: s.professores.map(p => p.id === prof.id ? { ...p, nome: editNameVal.trim() } : p),

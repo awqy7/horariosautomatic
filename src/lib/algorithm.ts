@@ -116,10 +116,10 @@ export function runSolver(input: SolverInput): SolverOutput {
   }
 
   const solutions: SolverSolution[] = [];
-  const deadline = Date.now() + 8000; // 8 second budget to prevent browser freeze
+  const deadline = Date.now() + 15000; // 15 second budget to prevent browser freeze
 
   // Run solver multiple times with different domain orderings
-  for (let run = 0; run < maxSolutions * 8 && solutions.length < maxSolutions; run++) {
+  for (let run = 0; run < maxSolutions * 20 && solutions.length < maxSolutions; run++) {
     if (Date.now() > deadline) break;
 
     const eventsShuffled = shuffleWithSeed([...events], run);
